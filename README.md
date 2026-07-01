@@ -1,1 +1,1 @@
-temp
+![Project Icon](icon.png)
