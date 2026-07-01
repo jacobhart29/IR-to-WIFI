@@ -312,14 +312,23 @@ void setup() {
         request->send(200, "text/plain", "Receiving IR signals: " + status);
     });
 
-    server.on("/ir/send", HTTP_POST, [](AsyncWebServerRequest *request) {
-        if (request->hasParam("name")) {
-            String name = request->getParam("name")->value();
-            sendByName(name);
-            request->send(200, "text/plain", "Sent IR signal for: " + name);
-        } else {
-            request->send(400, "text/plain", "Missing 'name' parameter");
-        }
+    server.on("/ir/send", HTTP_ANY, [](AsyncWebServerRequest *request) {
+
+    String name;
+
+    if (request->hasParam("name", true)) {
+        name = request->getParam("name", true)->value();  
+    }
+    else if (request->hasParam("name")) {
+        name = request->getParam("name")->value();        
+    }
+
+    if (name.length() > 0) {
+        sendByName(name);
+        request->send(200, "text/plain", "Sent IR signal for: " + name);
+    } else {
+        request->send(400, "text/plain", "Missing 'name' parameter");
+    }
     });
 
     server.on("/ir/list", HTTP_GET, [](AsyncWebServerRequest *request) {
