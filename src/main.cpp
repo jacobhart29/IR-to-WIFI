@@ -5,9 +5,10 @@
 #include <ArduinoJson.h>
 #include <IRremote.hpp>
 
-const char* ssid = ""; 
-const char* password = "";
+const char* ssid = "spiderlan"; 
+const char* password = "Aaron1028!";
 #define IR_RECEIVE_PIN 2
+#define IR_TRANSMIT_PIN 4
 
 AsyncWebServer server(80);
 const char* jsonPath = "/ir.json";
@@ -142,6 +143,91 @@ void saveIRToJSON(String protocol, String command, String address) {
     file.close();
 }
 
+void readJSON() {
+    File f = LittleFS.open(jsonPath, "r");
+    if (!f) {
+        Serial.println("Failed to open ir.json. (run receiver first and grab signals)");
+        return;
+    }
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, f);
+    f.close();
+
+    if (err) {
+        Serial.print("Failed to parse JSON: ");
+        Serial.println(err.f_str());
+        return;
+    }
+
+    JsonArray array = doc.as<JsonArray>();
+
+    for(JsonObject item: array) {
+        Serial.print("Name: ");
+        Serial.println(item["name"].as<const char*>());
+        Serial.print("Protocol: ");
+        Serial.println(item["protocol"].as<const char*>());
+        Serial.print("Command: ");
+        Serial.println(item["command"].as<const char*>());
+        Serial.print("Address: ");
+        Serial.println(item["address"].as<const char*>());
+    }
+}
+
+void sendIR(String commandHex, String addressHex, String protocol) {
+    unsigned long command = strtoul(commandHex.c_str(), NULL, 16);
+    unsigned long address = strtoul(addressHex.c_str(), NULL, 16);
+
+    protocol.trim();
+    protocol.toUpperCase();
+
+    if (protocol == "NEC") {
+        IrSender.sendNEC(address, command, 0); // i only tried NEC before so i am not sure if the other protocols work, but they should.
+    } else if (protocol == "Sony") {
+        IrSender.sendSony(address, command, 12); // i also heard that Sony protocol is 12 bits, but you might need to adjust this based on your specific device.
+    } else if (protocol == "RC5") {
+        IrSender.sendRC5(address, command, 0);
+    } else if (protocol == "Panasonic") {
+        IrSender.sendPanasonic(address, command, 0);
+    } else if (protocol == "SAMSUNG") {
+        IrSender.sendSAMSUNG(address, command);
+    } else {
+        Serial.println("Unsupported protocol: " + protocol);
+    }
+}
+
+void sendByName(String name) {
+    File f = LittleFS.open(jsonPath, "r");
+    if (!f) {
+        Serial.println("Failed to open ir.json.");
+        return;
+    }
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, f);
+    f.close();
+
+    if (err) {
+        Serial.print("Failed to parse JSON: ");
+        Serial.println(err.f_str());
+        return;
+    }
+
+    JsonArray array = doc.as<JsonArray>();
+
+    for(JsonObject item: array) {
+        if (item["name"] == name) {
+            String protocol = item["protocol"].as<String>();
+            String commandHex = item["command"].as<String>();
+            String addressHex = item["address"].as<String>();
+            sendIR(commandHex, addressHex, protocol);
+            return;
+        }
+    }
+
+    Serial.println("No IR signal found with the name: " + name);
+}
+
 void setup() {
     Serial.begin(115200);
 
@@ -154,12 +240,13 @@ void setup() {
     }
 
     IrReceiver.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
+    IrSender.begin(IR_TRANSMIT_PIN);
 
     WiFi.begin(ssid, password);
     while (WiFi.status() != WL_CONNECTED) delay(500);
     Serial.println(WiFi.localIP());
 
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    server.on("/record", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send_P(200, "text/html", index_html);
     });
 
@@ -220,7 +307,39 @@ void setup() {
         request->send(200);
     });
 
+    server.on("/ir/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+        String status = (IrReceiver.decode()) ? "Receiving" : "Idle";
+        request->send(200, "text/plain", "Receiving IR signals: " + status);
+    });
+
+    server.on("/ir/send", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (request->hasParam("name")) {
+            String name = request->getParam("name")->value();
+            sendByName(name);
+            request->send(200, "text/plain", "Sent IR signal for: " + name);
+        } else {
+            request->send(400, "text/plain", "Missing 'name' parameter");
+        }
+    });
+
+    server.on("/ir/list", HTTP_GET, [](AsyncWebServerRequest *request) {
+        JsonDocument doc;
+        File f = LittleFS.open(jsonPath, "r");
+        deserializeJson(doc, f);
+        f.close();
+
+        String jsonResponse;
+        serializeJson(doc, jsonResponse);
+        request->send(200, "application/json", jsonResponse);
+    });
+
+    server.onNotFound([](AsyncWebServerRequest *request) {
+        request->send(404, "text/plain", "Not Found");
+    });
+
     server.begin();
+
+    // readJSON(); // just for debugging.
 }
 
 void loop() {
