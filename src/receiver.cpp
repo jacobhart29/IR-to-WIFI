@@ -5,8 +5,8 @@
 #include <ArduinoJson.h>
 #include <IRremote.hpp>
 
-const char* ssid = "spiderlan";
-const char* password = "Aaron1028!";
+const char* ssid = ""; 
+const char* password = "";
 #define IR_RECEIVE_PIN 2
 
 AsyncWebServer server(80);
